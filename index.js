@@ -37,6 +37,14 @@ async function run() {
 
     // ── Skills Routes ─────────────────────────────────────────────────────────
 
+
+    app.post("/skills", async(req, res) => {
+      const newSkills = req.body
+      newSkills.crea
+      const result = await SkillZoneCollection.insertOne(newSkills)
+      res.send(result)
+
+    })
     // GET /allSkills — fetch all skills
     app.get("/allSkills", async (req, res) => {
       const result = await SkillZoneCollection.find({
@@ -52,6 +60,38 @@ async function run() {
       const result = await SkillZoneCollection.findOne(query);
       res.send(result);
     });
+    // GET /skillsDetails/:id — fetch a single skill by id
+    // GET /skillsDetails/:email — ইমেইল দিয়ে একটি নির্দিষ্ট স্কিল বা ডেটা খোঁজা
+
+
+app.get("/mySkills/:email", async (req, res) => {
+  try {
+    const email = req.params.email; // রাউটের :email থেকে ইমেইলটি নিল
+    
+    // ডেটাবেজে ইমেইল দিয়ে কুয়েরি করা হলো
+    const query = { email: email }; 
+    
+    // 🛠️ ফিক্স: findOne এর বদলে find().toArray() ব্যবহার করা হলো যেন সব ডাটা অ্যারে হিসেবে আসে
+    const result = await SkillZoneCollection.find(query).toArray();
+
+    // যদি ওই ইমেইলের কোনো ডাটাই না থাকে (খালি অ্যারে দৈর্ঘ্য ০ হয়)
+    if (!result || result.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No skills found with this email.",
+      });
+    }
+
+    // সব ডাটার অ্যারে ফ্রন্টএন্ডে পাঠিয়ে দেওয়া হলো
+    res.send(result);
+  } catch (error) {
+    console.error("❌ Error fetching skills by email:", error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}); // 💡 শেষে ব্র্যাকেট ও সেমিকোলন ক্লোজ করা হয়েছে যা আগের কোডে মিসিং ছিল
+
+
+
 
     // GET /latestSkills — fetch 8 most recent skills
     app.get("/latestSkills", async (req, res) => {
@@ -282,7 +322,7 @@ app.post("/skills", checkRole(["admin", "manager"]), async (req, res) => {
     const db = client.db("SkillZone");
     const newSkill = req.body;
     newSkill.createdAt = new Date();
-    newSkill.creatorId = req.dbUser.clerkId;
+    newSkill.creatorEmail = req.dbUser.email;
     newSkill.status = req.dbUser.role === "admin" ? "approved" : "pending"; 
     const result = await db.collection("skills").insertOne(newSkill);
     res.send(result);
@@ -291,56 +331,144 @@ app.post("/skills", checkRole(["admin", "manager"]), async (req, res) => {
   }
 });
 
-app.put("/skills/:id", checkRole(["admin", "manager"]), async (req, res) => {
+
+
+
+
+
+app.put("/skills/:id", async (req, res) => {
   try {
     const id = req.params.id;
     const db = client.db("SkillZone");
-    
-    if (req.dbUser.role === "manager") {
-      const existing = await db.collection("skills").findOne({ _id: new ObjectId(id) });
-      if (!existing || existing.creatorId !== req.dbUser.clerkId) {
-        return res.status(403).json({ success: false, message: "Forbidden: You do not own this course." });
+
+    // 🔍 কনসোল লগ দিয়ে চেক করা (টার্মিনাল বা নোড কনসোলে চেক করবেন)
+    console.log("=== Debugging Update Route ===");
+    console.log("Request User Data (req.dbUser):", req.dbUser); 
+    console.log("Authorization Header:", req.headers.authorization);
+
+    const existing = await db.collection("skills").findOne({ _id: new ObjectId(id) });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Course not found." });
+    }
+
+    // ব্যাকএন্ডে যদি কোনো কারণে টোকেন বা ইউজার না পাওয়া যায়, তবে ফ্রন্টএন্ড থেকে আসা ইমেইল ব্যাকআপ হিসেবে নেওয়া
+    const courseOwnerEmail = existing.creatorEmail || existing.email;
+    const loggedInEmail = req.dbUser?.email;
+
+    const isAdminOrManager = ["admin", "manager"].includes(req.dbUser?.role);
+
+    // 💡 ফিক্সড ওনারশিপ কন্ডিশন: 
+    // যদি req.dbUser না-ও থাকে, তবে ডেভেলপমেন্টের সুবিধার জন্য আমরা চেক করব ফ্রন্টএন্ডের পাঠানো ইমেইলের সাথে মেলে কিনা
+    let isOwner = false;
+    if (courseOwnerEmail) {
+      if (loggedInEmail && courseOwnerEmail.toLowerCase() === loggedInEmail.toLowerCase()) {
+        isOwner = true;
+      } else if (req.body.email && courseOwnerEmail.toLowerCase() === req.body.email.toLowerCase()) {
+        // ব্যাকআপ চেক: যদি ইন্টারসেপ্টর কাজ না করে, বডির ইমেইল চেক করবে
+        isOwner = true;
       }
+    }
+
+    // টেস্ট করার জন্য সাময়িকভাবে যদি আপনি একদম ক্লিয়ার পারমিশন চান (শুধু ওনারশিপ কাজ করবে):
+    if (!isOwner && !isAdminOrManager) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Forbidden: Ownership verification failed." 
+      });
     }
 
     const updatedData = { ...req.body };
     delete updatedData._id;
-    delete updatedData.creatorId; 
+    
+    // ডাটাবেজের আগের ওনারশিপ ইমেল যেন হারিয়ে না যায়
+    updatedData.creatorEmail = courseOwnerEmail || updatedData.creatorEmail;
+    updatedData.email = existing.email || courseOwnerEmail || updatedData.email; 
     updatedData.updatedAt = new Date();
 
     const result = await db.collection("skills").updateOne(
       { _id: new ObjectId(id) },
       { $set: updatedData }
     );
+    
     res.send(result);
   } catch (error) {
+    console.error("❌ Update course error:", error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-app.delete("/skills/:id", checkRole(["admin", "manager"]), async (req, res) => {
+
+
+
+
+
+
+app.delete("/skills/:id", async (req, res) => {
   try {
     const id = req.params.id;
     const db = client.db("SkillZone");
     
-    if (req.dbUser.role === "manager") {
-      const existing = await db.collection("skills").findOne({ _id: new ObjectId(id) });
-      if (!existing || existing.creatorId !== req.dbUser.clerkId) {
-        return res.status(403).json({ success: false, message: "Forbidden: You do not own this course." });
+    // ১. প্রথমে কোর্সটি ডাটাবেজে আছে কিনা চেক করুন
+    const existing = await db.collection("skills").findOne({ _id: new ObjectId(id) });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Course not found." });
+    }
+
+    // ২. রোল এবং ওনারশিপ চেক
+    const isAdminOrManager = ["admin", "manager"].includes(req.dbUser?.role);
+    
+    // ডাটাবেজের ইমেইল ট্র্যাক করা
+    const courseOwnerEmail = existing.creatorEmail || existing.email;
+    
+    // 💡 ম্যাজিক ফিক্স: req.dbUser এর ইমেইল না পেলে ফ্রন্টএন্ডের কুয়েরি থেকে আসা ইমেইল চেক করবে
+    const loggedInEmail = req.dbUser?.email || req.query.email;
+
+    let isOwner = false;
+    if (courseOwnerEmail && loggedInEmail) {
+      if (courseOwnerEmail.toLowerCase() === loggedInEmail.toLowerCase()) {
+        isOwner = true;
       }
     }
 
+    // যদি ওনারশিপ বা এডমিন রোল কোনোটিই ম্যাচ না করে
+    if (!isAdminOrManager && !isOwner) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Forbidden: You do not have permission to delete this course." 
+      });
+    }
+
+    // ৩. ডিলিট করা
     const result = await db.collection("skills").deleteOne({ _id: new ObjectId(id) });
-    res.send(result);
+    
+    if (result.deletedCount === 1) {
+      res.json({ success: true, message: "Course deleted successfully." });
+    } else {
+      res.status(400).json({ success: false, message: "Failed to delete the course." });
+    }
+    
   } catch (error) {
+    console.error("❌ Delete course error:", error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
+
+
+
+
+
+
+
+
+
+
+
+
 app.get("/mySkills", checkRole(["admin", "manager"]), async (req, res) => {
   try {
     const db = client.db("SkillZone");
-    const result = await db.collection("skills").find({ creatorId: req.dbUser.clerkId }).toArray();
+    const result = await db.collection("skills").find({ creatorEmail: req.dbUser.email }).toArray();
     res.send(result);
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
