@@ -12,7 +12,15 @@ const dns = require("dns");
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
-app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:3000" }));
+// আগের কোডটি বাদ দিয়ে এই কোডটুকু বসিয়ে দিন
+app.use(cors({ 
+  origin: [
+    "http://localhost:3000", 
+    "https://skillzone-frontend-one.vercel.app"
+  ],
+  credentials: true 
+}));
+
 app.use(express.json());
 
 // ─── MongoDB Setup ────────────────────────────────────────────────────────────
