@@ -116,56 +116,42 @@ app.get("/mySkills/:email", async (req, res) => {
      * Upserts a Clerk-authenticated user into the `users` collection.
      * Fixes the automatic role reset bug on refresh.
      */
-    app.post("/user", async (req, res) => {
-      const { clerkId, email, name, role } = req.body;
+  app.post("/user", async (req, res) => {
+  const { clerkId, email, name, role } = req.body;
 
-      // Validation
-      if (!clerkId || !email) {
-        return res.status(400).json({
-          success: false,
-          message: "clerkId and email are required.",
-        });
-      }
+  if (!clerkId || !email) {
+    return res.status(400).json({ success: false, message: "Required fields missing." });
+  }
 
-      try {
-        const filter = { clerkId };
+  try {
+    const filter = { clerkId };
 
-        const updateDoc = {
-          // $set শুধু সেই ডেটা আপডেট করবে যা পরিবর্তন হওয়া উচিত (যেমন প্রোফাইল নেম)
-          $set: {
-            clerkId,
-            email,
-            name: name || "",
-            updatedAt: new Date(),
-          },
-          // $setOnInsert শুধু নতুন ইউজার তৈরি হওয়ার সময় রান করবে
-          $setOnInsert: {
-            role: role || "user", // প্রথমবার একাউন্ট খোলার সময় ডিফল্ট 'user' হবে
-            createdAt: new Date(),
-          },
-        };
+    // ১. ডাটাবেজে ইউজার আছে কি নেই চেক করুন
+    const existingUser = await usersCollection.findOne(filter);
 
-        const options = { upsert: true };
+    const updateDoc = {
+      $set: {
+        clerkId,
+        email,
+        name: name || "",
+        updatedAt: new Date(),
+        // ২. যদি নতুন রোল ফ্রন্টএন্ড থেকে আসে, তবে তা আপডেট হবে। 
+        // অন্যথায় পুরনো রোলটিই থাকবে।
+        role: role || (existingUser ? existingUser.role : "user"),
+      },
+      $setOnInsert: {
+        createdAt: new Date(),
+      },
+    };
 
-        const result = await usersCollection.updateOne(filter, updateDoc, options);
-        const isNewUser = result.upsertedCount > 0;
+    const options = { upsert: true };
+    const result = await usersCollection.updateOne(filter, updateDoc, options);
 
-        return res.status(200).json({
-          success: true,
-          message: isNewUser
-            ? "New user created successfully."
-            : "Existing user updated successfully.",
-          upsertedId: result.upsertedId ?? null,
-          modifiedCount: result.modifiedCount,
-        });
-      } catch (error) {
-        console.error("❌ Error saving user:", error.message);
-        return res.status(500).json({
-          success: false,
-          message: "Internal server error. Please try again later.",
-        });
-      }
-    });
+    return res.status(200).json({ success: true, message: "User synced successfully." });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Server error." });
+  }
+});
 
     // ── GET /user/:clerkId — fetch a single user by Clerk ID ─────────────────
     app.get("/user/:clerkId", async (req, res) => {
