@@ -406,22 +406,28 @@ app.put("/skills/:id", async (req, res) => {
 app.delete("/skills/:id", async (req, res) => {
   try {
     const id = req.params.id;
+    
+    // আইডির ফরম্যাট ঠিক আছে কিনা চেক করা (ভুল আইডিতে ক্র্যাশ এড়াতে)
+    if (!id || id.length !== 24) {
+      return res.status(400).json({ success: false, message: "Invalid ID format" });
+    }
+
     const db = client.db("SkillZone");
     
-    // ১. প্রথমে কোর্সটি ডাটাবেজে আছে কিনা চেক করুন
+    // ১. প্রথমে কোর্সটি ডাটাबेজে আছে কিনা চেক করুন
     const existing = await db.collection("skills").findOne({ _id: new ObjectId(id) });
     if (!existing) {
       return res.status(404).json({ success: false, message: "Course not found." });
     }
 
-    // ২. রোল এবং ওনারশিপ চেক
-    const isAdminOrManager = ["admin", "manager"].includes(req.dbUser?.role);
+    // ২. রোল এবং ওনারশিপ চেক (ক্র্যাশ-প্রুফ লজিক)
+    const isAdminOrManager = req.dbUser && req.dbUser.role && ["admin", "manager"].includes(req.dbUser.role);
     
     // ডাটাবেজের ইমেইল ট্র্যাক করা
-    const courseOwnerEmail = existing.creatorEmail || existing.email;
+    const courseOwnerEmail = existing.creatorEmail || existing.email || "";
     
-    // 💡 ম্যাজিক ফিক্স: req.dbUser এর ইমেইল না পেলে ফ্রন্টএন্ডের কুয়েরি থেকে আসা ইমেইল চেক করবে
-    const loggedInEmail = req.dbUser?.email || req.query.email;
+    // রিকোয়েস্ট থেকে আসা ইমেইল (dbUser থেকে অথবা ফ্রন্টএন্ডের কুয়েরি থেকে)
+    const loggedInEmail = (req.dbUser && req.dbUser.email) ? req.dbUser.email : (req.query && req.query.email ? req.query.email : "");
 
     let isOwner = false;
     if (courseOwnerEmail && loggedInEmail) {
@@ -430,7 +436,7 @@ app.delete("/skills/:id", async (req, res) => {
       }
     }
 
-    // যদি ওনারশিপ বা এডমিন রোল কোনোটিই ম্যাচ না করে
+    // যদি এডমিন না হয় এবং ওনার-ও না হয়
     if (!isAdminOrManager && !isOwner) {
       return res.status(403).json({ 
         success: false, 
@@ -438,21 +444,21 @@ app.delete("/skills/:id", async (req, res) => {
       });
     }
 
-    // ৩. ডিলিট করা
+    // ৩. পারমিশন ঠিক থাকলে ডিলিট করুন
     const result = await db.collection("skills").deleteOne({ _id: new ObjectId(id) });
     
     if (result.deletedCount === 1) {
-      res.json({ success: true, message: "Course deleted successfully." });
+      return res.json({ success: true, message: "Course deleted successfully." });
     } else {
-      res.status(400).json({ success: false, message: "Failed to delete the course." });
+      return res.status(400).json({ success: false, message: "Failed to delete the course." });
     }
     
   } catch (error) {
-    console.error("❌ Delete course error:", error.message);
-    res.status(500).json({ success: false, message: error.message });
+    // টার্মিনালে এররটা প্রিন্ট হবে যেন আপনি দেখতে পারেন আসল ঝামেলা কী
+    console.error("❌ Critical Delete Error:", error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
-
 
 
 
