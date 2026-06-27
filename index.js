@@ -56,27 +56,47 @@ app.get("/user/role/:clerkId", async (req, res) => {
 
 
 
-    app.post("/skills", async(req, res) => {
-      const newSkills = req.body
-      newSkills.crea
-      const result = await SkillZoneCollection.insertOne(newSkills)
-      res.send(result)
+    app.post("/skills", async (req, res) => {
+      try {
+        const newSkills = req.body;
+        const result = await SkillZoneCollection.insertOne(newSkills);
+        res.status(201).json(result);
+      } catch (error) {
+        console.error("❌ Error inserting skill:", error);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
 
-    })
     // GET /allSkills — fetch all skills
     app.get("/allSkills", async (req, res) => {
-      const result = await SkillZoneCollection.find({
-        $or: [{ status: "approved" }, { status: { $exists: false } }]
-      }).toArray();
-      res.send(result);
+      try {
+        const result = await SkillZoneCollection.find({
+          $or: [{ status: "approved" }, { status: { $exists: false } }]
+        }).toArray();
+        res.status(200).json(result);
+      } catch (error) {
+        console.error("❌ Error fetching all skills:", error);
+        res.status(500).json({ success: false, message: error.message });
+      }
     });
 
     // GET /skillsDetails/:id — fetch a single skill by id
     app.get("/skillsDetails/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await SkillZoneCollection.findOne(query);
-      res.send(result);
+      try {
+        const id = req.params.id;
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({ success: false, message: "Invalid Course ID" });
+        }
+        const query = { _id: new ObjectId(id) };
+        const result = await SkillZoneCollection.findOne(query);
+        if (!result) {
+          return res.status(404).json({ success: false, message: "Course not found" });
+        }
+        res.status(200).json(result);
+      } catch (error) {
+        console.error("❌ Error fetching skill details:", error);
+        res.status(500).json({ success: false, message: error.message });
+      }
     });
     // GET /skillsDetails/:id — fetch a single skill by id
     // GET /skillsDetails/:email — ইমেইল দিয়ে একটি নির্দিষ্ট স্কিল বা ডেটা খোঁজা
@@ -113,10 +133,15 @@ app.get("/mySkills/:email", async (req, res) => {
 
     // GET /latestSkills — fetch 8 most recent skills
     app.get("/latestSkills", async (req, res) => {
-      const result = await SkillZoneCollection.find({
-        $or: [{ status: "approved" }, { status: { $exists: false } }]
-      }).sort({ createdAt: -1 }).limit(8).toArray();
-      res.send(result);
+      try {
+        const result = await SkillZoneCollection.find({
+          $or: [{ status: "approved" }, { status: { $exists: false } }]
+        }).sort({ createdAt: -1 }).limit(8).toArray();
+        res.status(200).json(result);
+      } catch (error) {
+        console.error("❌ Error fetching latest skills:", error);
+        res.status(500).json({ success: false, message: error.message });
+      }
     });
 
     // ── User Sync Route ───────────────────────────────────────────────────────
@@ -741,6 +766,11 @@ app.post("/api/ai/chat", async (req, res) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
-app.listen(port, () => {
-  console.log(`🚀 SkillForge AI Server is running on port ${port}`);
-});
+if (process.env.NODE_ENV !== "production") {
+  app.listen(port, () => {
+    console.log(`🚀 SkillForge AI Server is running on port ${port}`);
+  });
+}
+
+// Export the Express API for Vercel Serverless Functions
+module.exports = app;
