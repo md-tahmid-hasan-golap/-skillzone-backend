@@ -45,6 +45,16 @@ async function run() {
 
     // ── Skills Routes ─────────────────────────────────────────────────────────
 
+app.get("/user/role/:clerkId", async (req, res) => {
+  // এই লাইনটি যোগ করুন যাতে ক্যাশ না ধরে
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  
+  const user = await usersCollection.findOne({ clerkId: req.params.clerkId });
+  res.status(200).json({ role: user?.role || "user" });
+});
+
+
+
 
     app.post("/skills", async(req, res) => {
       const newSkills = req.body
@@ -153,8 +163,13 @@ app.get("/mySkills/:email", async (req, res) => {
   }
 });
 
+
+
+
+
     // ── GET /user/:clerkId — fetch a single user by Clerk ID ─────────────────
     app.get("/user/:clerkId", async (req, res) => {
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
       const { clerkId } = req.params;
 
       if (!clerkId) {
